@@ -53,16 +53,16 @@ enum {
 /* You will need MyPriority and maybe a state variable; you may need others
  * as well. */
 
-static uint8_t MyPriority;
-static uint8_t sunnyRead_FL = 0x0;
-static uint8_t sunnyRead_FR = 0x0;
-static uint8_t sunnyRead_B = 0x0;
-static uint8_t cloudyRead_FL = 0x0;
-static uint8_t cloudyRead_FR = 0x0;
-static uint8_t cloudyRead_B = 0x0;
-static uint8_t tapeTracker_FL = OFF_TAPE;
-static uint8_t tapeTracker_FR = OFF_TAPE;
-static uint8_t tapeTracker_B = OFF_TAPE;
+static uint8_t MyPriority; //used for event handling
+static uint8_t sunnyRead_FL = 0x0; //front left first reading
+static uint8_t sunnyRead_FR = 0x0; //front right first reading
+static uint8_t sunnyRead_B = 0x0; //back first reading
+static uint8_t cloudyRead_FL = 0x0; //front left second reading
+static uint8_t cloudyRead_FR = 0x0; //front right second reading
+static uint8_t cloudyRead_B = 0x0; //back second reading
+static uint8_t tapeTracker_FL = OFF_TAPE; //keeps track of where the bot is (FL)
+static uint8_t tapeTracker_FR = OFF_TAPE; //keeps track of where the bot is (FR)
+static uint8_t tapeTracker_B = OFF_TAPE; //keeps track of where the bot is (B)
 
 /*******************************************************************************
  * PUBLIC FUNCTIONS                                                            *
@@ -130,61 +130,87 @@ ES_Event RunTapeSensorService(ES_Event ThisEvent) {
         case ES_TIMERACTIVE:
         case ES_TIMERSTOPPED:
             break;
-        case ES_TIMEOUT:
-            // The statemachine waits for a timeout event, then reads the sensor output
-            // and once it has read the value twice, it checks to see if the difference between
-            // the reading with the LEDs on and LEDs is high or low
+        case ES_TIMEOUT: 
+            
+            /*
+            The statemachine waits for a timeout event, then reads the sensor output
+            and once it has read the value twice, it checks to see if the difference between
+            the reading with the LEDs on and LEDs is high or low
+            */
+            
             if (readCounter == 0x0) {
                 sunnyRead_FL = AD_ReadADPin(FRONT_LEFT_SENSOR); //reads tape sensor FL
                 sunnyRead_FR = AD_ReadADPin(FRONT_RIGHT_SENSOR); //reads tape sensor Fr
                 sunnyRead_B = AD_ReadADPin(BACK_SENSOR); //reads tape sensor B
                 readCounter++;
                 ES_Timer_InitTimer(TAPE_SENSOR_TIMER, TAPE_SENSOR_TICKS); // sets a short timer
-            } else if (readCounter = 0x1) {
+            } 
+            
+            else if (readCounter = 0x1) {
                 cloudyRead_FL = AD_ReadADPin(FRONT_LEFT_SENSOR); //reads tape sensor FL
                 cloudyRead_FR = AD_ReadADPin(FRONT_RIGHT_SENSOR); //reads tape sensor FR
                 cloudyRead_B = AD_ReadADPin(BACK_SENSOR); //reads tape sensor B
                 readCounter = 0x0;
                 ES_Timer_InitTimer(TAPE_SENSOR_TIMER, WAIT_TIME); // sets a longer timer
-                if ((sunnyRead_FL - cloudyRead_FL) < DEBOUNCE_THRESHOLD) {
+                
+                //Checks the front left tape sensor
+                if ((sunnyRead_FL - cloudyRead_FL) < DEBOUNCE_THRESHOLD) { //this checks if we got a tape event on the FL sensor
+                    //First checks if the bot moved off tape --> on tape
                     if ((sunnyRead_FL > TAPE_THRESHOLD) && (tapeTracker_FL == OFF_TAPE)) {
                         tapeTracker_FL = ON_TAPE;
                         ReturnEvent.EventType = TAPE_SENSOR_TRIPPED;
                         ReturnEvent.EventParam = 0x1;
                         PostTopLevelHSM(ReturnEvent);
-                    } else if ((sunnyRead_FL < TAPE_THRESHOLD) && (tapeTracker_FL == ON_TAPE)) {
+                    } 
+                    //Then checks if the bot moved on tape --> off tape
+                    else if ((sunnyRead_FL < TAPE_THRESHOLD) && (tapeTracker_FL == ON_TAPE)) {
                         tapeTracker_FL = OFF_TAPE;
                         ReturnEvent.EventType = TAPE_SENSOR_CLR;
                         ReturnEvent.EventParam = 0x1;
                         PostTopLevelHSM(ReturnEvent);
                     }
                 }
-                if ((sunnyRead_FR - cloudyRead_FR) < DEBOUNCE_THRESHOLD) {
+                
+                //Checks the front right tape sensor
+                if ((sunnyRead_FR - cloudyRead_FR) < DEBOUNCE_THRESHOLD) { //this checks if we got a tape event on the FR sensor
+                    //First checks if the bot moved off tape --> on tape
                     if ((sunnyRead_FR > TAPE_THRESHOLD) && (tapeTracker_FR == OFF_TAPE)) {
                         tapeTracker_FR = ON_TAPE;
                         ReturnEvent.EventType = TAPE_SENSOR_TRIPPED;
                         ReturnEvent.EventParam = 0x2;
                         PostTopLevelHSM(ReturnEvent);
-                    } else if ((sunnyRead_FR < TAPE_THRESHOLD) && (tapeTracker_FR == ON_TAPE)) {
+                    } 
+                    //Then checks if the bot moved on tape --> off tape
+                    else if ((sunnyRead_FR < TAPE_THRESHOLD) && (tapeTracker_FR == ON_TAPE)) {
                         tapeTracker_FR = OFF_TAPE;
                         ReturnEvent.EventType = TAPE_SENSOR_CLR;
                         ReturnEvent.EventParam = 0x2;
                         PostTopLevelHSM(ReturnEvent);
                     }
                 }
-                if ((sunnyRead_B - cloudyRead_B) < DEBOUNCE_THRESHOLD) {
+                
+                //Checks the back tape sensor
+                if ((sunnyRead_B - cloudyRead_B) < DEBOUNCE_THRESHOLD) { //this checks if we got a tape event on the B sensor
+                    //First checks if the bot moved off tape --> on tape
                     if ((sunnyRead_B > TAPE_THRESHOLD) && (tapeTracker_B == OFF_TAPE)) {
                         tapeTracker_B = ON_TAPE;
                         ReturnEvent.EventType = TAPE_SENSOR_TRIPPED;
                         ReturnEvent.EventParam = 0x4;
                         PostTopLevelHSM(ReturnEvent);
-                    } else if ((sunnyRead_B < TAPE_THRESHOLD) && (tapeTracker_B == ON_TAPE)) {
+                    } 
+                    //Then checks if the bot moved on tape --> off tape
+                    else if ((sunnyRead_B < TAPE_THRESHOLD) && (tapeTracker_B == ON_TAPE)) {
                         tapeTracker_B = OFF_TAPE;
                         ReturnEvent.EventType = TAPE_SENSOR_CLR;
                         ReturnEvent.EventParam = 0x4;
                         PostTopLevelHSM(ReturnEvent);
                     }
                 }
+            }
+            
+            //Reset if the read counter got messed up
+            else {
+               readCounter = 0x0;   
             }
             break;
     }
