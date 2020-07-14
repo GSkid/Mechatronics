@@ -92,30 +92,28 @@ uint8_t InitPingService(uint8_t Priority) {
     ES_Event ThisEvent;
     MyPriority = Priority;
 
+   //Tristate registers for ping sensors (setting IO)
     PORTY08_TRIS = 1;
     PORTY06_TRIS = 1;
     PORTY07_TRIS = 0;
     PORTY05_TRIS = 0;
 
+   //Triggers to tell when to send the pulses
     TRIG1 = 0;
     TRIG2 = 0;
 
+   //Setting the uno32 timer3
     OpenTimer3(T3_ON | T3_PS_1_32, (BOARD_GetPBClock()));
     T3CON = 0x8030; // turn timer 2 on
     PR3 = 0xFFFF;
     //T3CON = 0x8000; // turn timer 3 on (for 32 bit mode)
 
-    ///////  0000 0011 1000 0010
+    //Initializing the IC's
     IC3CON = 0b0000001000000110; // initialize the input capture on pin Z7
     IC2CON = 0b0000001000000110; // initialize the input capture on pin Y6
 
     
     lastState.EventType = ES_INIT;
-    // read lowest 16 bits of ICxBUF
-    //controllerState.EventType = NEW_PING1;
-    //PostPingService(ThisEvent);
-    //    ThisEvent.EventType = ES_INIT;
-    // post the initial transition event
     if (ES_PostToService(MyPriority, ThisEvent) == TRUE) {
         return TRUE;
     } else {
@@ -162,32 +160,6 @@ ES_Event RunPingService(ES_Event ThisEvent) {
     static uint16_t PingF_Param = 0;
     static uint16_t PingB_Param = 0;
    
-
-    //printf(" %i", ThisEvent);
-    //ES_Timer_InitTimer(PING_TIMER, 1);
-    /*if (controllerState.EventType == PING_OFF) {
-        if (ThisEvent.EventType == PING_ON) {
-            controllerState.EventType = PING_ON;
-            printf("PING_ON\r\n");
-        } else if (ThisEvent.EventType == PING_OFF) {
-            controllerState.EventType = PING_OFF;
-            //PostTopLevelHSM(controllerState);
-            //            printf("PING_OFF\r\n");
-        }
-    } else {
-        if (ThisEvent.EventType == ES_INIT) {
-            controllerState.EventType = ES_INIT;
-        }
-        if (ThisEvent.EventType == PING_OFF) {
-            controllerState.EventType = PING_OFF;
-            //            PostTopLevelHSM(controllerState);
-            printf("PING_OFF\r\n");
-        }
-        if (ThisEvent.EventType == ES_TIMEOUT) {
-            controllerState.EventType = ES_TIMEOUT;
-        }
-    }*/
-    
     //This will turn on the ping sensors to bypass the PING_OFF return catch
     if (ThisEvent.EventType == PING_ON) {
         lastState.EventType = PING_ON;
@@ -200,9 +172,11 @@ ES_Event RunPingService(ES_Event ThisEvent) {
     
     //Top Level State Machine
     switch (ThisEvent.EventType) {
+        //Catches any non-event type passes
         case ES_INIT:
             break;
 
+        //Resets and turns off the ping sensors until we turn them back on
         case PING_OFF:
             lastState.EventType = PING_OFF;
             ping1Avg = 0, ping2Avg = 0;
@@ -210,11 +184,14 @@ ES_Event RunPingService(ES_Event ThisEvent) {
             ES_Timer_StopTimer(PING_TIMER);
             break;
 
+        //Readies for the first ping sensor reading
         case PING_ON:
             ThisEvent.EventType = NEW_PING1;
             PostPingService(ThisEvent);
             break;
 
+        //Resets the trigger and input capture 3 to get a new reading
+        //Also starts the timer
         case NEW_PING1:
             TRIG1 = 1;
             IC3CON &= 0x7FFF;
@@ -222,6 +199,8 @@ ES_Event RunPingService(ES_Event ThisEvent) {
             daState = TRIGGER1;
             break;
 
+        //Resets the trigger and input capture 2 to get a new reading
+        //Also starts the timer
         case NEW_PING2:
             TRIG2 = 1;
             IC2CON &= 0x7FFF;
@@ -229,11 +208,12 @@ ES_Event RunPingService(ES_Event ThisEvent) {
             daState = TRIGGER2;
             break;
 
+        //On timer elapse, we want to read and calculate distance for each sensor
         case ES_TIMEOUT:
             if (ThisEvent.EventParam == PING_TIMER) {
                 switch (daState) {
-
-
+                    //Ping sensor 1 resets
+                    //First reset the timer and ic, then triggers the pulse
                     case TRIGGER1:
                         ES_Timer_InitTimer(PING_TIMER, 1);
                         TMR3 = 0x0000; // reset the timers
@@ -241,26 +221,27 @@ ES_Event RunPingService(ES_Event ThisEvent) {
                         TRIG1 = 0;
                         daState = ECHO1a;
                         break;
+                      
+                    //Sets the starting time for the ping once the pulse is sent
                     case ECHO1a:
-
                         ES_Timer_InitTimer(PING_TIMER, 1);
                         if (IC3CON & 0x8) {
                             daState = ECHO1b;
                             echoEdge = IC3BUF;
                         }
                         break;
+                      
+                    //Records total elapsed time and determines distance
+                    //Generates events based on measured distances
                     case ECHO1b:
                         ES_Timer_InitTimer(PING_TIMER, 5);
+                        //Checking for input capture to be high (indicating we received the pulse bounce-back)
                         if (IC3CON & 0x8) {
-                            PingF_Read = IC3BUF - echoEdge;
-                            ping1Avg += (PingF_Read * DIVISION + OFFSET1) / MAP1;
-                            ping1Samplez++;
-                            //daState = NEW_PING2;
+                            PingF_Read = IC3BUF - echoEdge; //calculating distance
+                            ping1Avg += (PingF_Read * DIVISION + OFFSET1) / MAP1; //mapping to distance in cm
+                            ping1Samplez++; // incrementing for our simple averaging filter
                             if (ping1Samplez >= NUM_SAMPLEZ) {
-                                //                            controllerState.EventType = NEW_PING2;
-                                PingF_Param = ping1Avg / NUM_SAMPLEZ;
-//                                printf("PingF_Param: %i\r\n\r\n", PingF_Param);
-                                //                            printf("1");
+                                PingF_Param = ping1Avg / NUM_SAMPLEZ; //averaging filter to remove potential noise
                                 if (PingF_Param >= UPPER_THRESHOLD) {
                                     ReturnEvent.EventType = PINGF_FAR;
                                     ReturnEvent.EventParam = PingF_Param;
@@ -269,22 +250,22 @@ ES_Event RunPingService(ES_Event ThisEvent) {
                                 }
                                 ping1Samplez = 0;
                                 ping1Avg = 0;
-                                //printf("\r\nPing 1 Value: %i", ReturnEvent.EventParam);
                             }
+                            //Goes to next ping sensor once this one completes
                             ReturnEvent.EventType = NEW_PING2;
                             PostPingService(ReturnEvent);
                         }
                         break;
 
-
-
+                    //Ping sensor 2 resets
                     case TRIGGER2:
                         ES_Timer_InitTimer(PING_TIMER, 1);
-                        //                    TMR3 = 0x0000; // reset the timers
                         IC2CON |= 0x8000; // restart input capture 1
                         TRIG2 = 0;
                         daState = ECHO2a;
                         break;
+                      
+                    //Triggers the pulse and records starting time
                     case ECHO2a:
                         ES_Timer_InitTimer(PING_TIMER, 1);
                         if (IC2CON & 0x8) {
@@ -292,26 +273,27 @@ ES_Event RunPingService(ES_Event ThisEvent) {
                             echoEdge = IC2BUF;
                         }
                         break;
+                      
+                    //Same as ping sensor one but with more event checking
                     case ECHO2b:
                         ES_Timer_InitTimer(PING_TIMER, 5);
-                        if (IC2CON & 0x8) {
-                            PingB_Read = IC2BUF - echoEdge;
-                            ping2Avg += (PingB_Read * DIVISION + OFFSET2) / MAP2;
+                        if (IC2CON & 0x8) { //waiting for ping bounceback
+                            PingB_Read = IC2BUF - echoEdge; //recording total time
+                            ping2Avg += (PingB_Read * DIVISION + OFFSET2) / MAP2; //mapping to cm
                             ping2Samplez++;
-                            //daState = NEW_PING1;
 
                             if (ping2Samplez >= NUM_SAMPLEZ) {
-                                //                            controllerState.EventType = NEW_PING1;
-                                PingB_Param = ping2Avg / NUM_SAMPLEZ;
-                                //                            printf("2");
-//                                printf("PingB_Param: %i\r\n\r\n", PingB_Param);
-                                if (PingB_Param >= UPPER_THRESHOLD) {
+                                PingB_Param = ping2Avg / NUM_SAMPLEZ; //averaging filter
+                                if (PingB_Param >= UPPER_THRESHOLD) { //checking far event
                                     ReturnEvent.EventType = PINGB_FAR;
                                     ReturnEvent.EventParam = PingB_Param;
                                     PostTopLevelHSM(ReturnEvent);
                                     PingB_Param = 0;
-                                } else if ((abs(PingF_Param - PingB_Param) <= PARALLEL_THRESHOLD) && (((PingF_Param + PingB_Param) / 2) <= LOWER_THRESHOLD)) {
+                                } 
+                               //First we check to see if both ping sensors report similar, short distances (eg. close to a wall)
+                               else if ((abs(PingF_Param - PingB_Param) <= PARALLEL_THRESHOLD) && (((PingF_Param + PingB_Param) / 2) <= LOWER_THRESHOLD)) {
                                     ReturnEvent.EventType = PARALLEL_CLOSE;
+                                    //Next we determine which ping sensor is actually closer so we know how to maneuver around the wall
                                     if (PingF_Param > PingB_Param) { //Front further than back
                                         ReturnEvent.EventParam = 1;
                                     } else if (PingF_Param < PingB_Param) { //Front closer than back
@@ -322,7 +304,10 @@ ES_Event RunPingService(ES_Event ThisEvent) {
                                     PostTopLevelHSM(ReturnEvent);
                                     PingF_Param = 0;
                                     PingB_Param = 0;
-                                } else if ((abs(PingF_Param - PingB_Param) <= PARALLEL_THRESHOLD) && (((PingF_Param + PingB_Param) / 2) > LOWER_THRESHOLD)) {
+                                } 
+                               //Then we check if the ping sensor are both reporting similar, far distances (eg. far from wall, no wall detected)
+                               else if ((abs(PingF_Param - PingB_Param) <= PARALLEL_THRESHOLD) && (((PingF_Param + PingB_Param) / 2) > LOWER_THRESHOLD)) {
+                                    //Here we don't care which ping sensor is closer, we just want to know if we found a parallel surface
                                     ReturnEvent.EventType = PARALLEL_FAR;
                                     ReturnEvent.EventParam = abs(PingF_Param - PingB_Param);
                                     PostTopLevelHSM(ReturnEvent);
@@ -336,8 +321,8 @@ ES_Event RunPingService(ES_Event ThisEvent) {
                             PostPingService(ReturnEvent);
                         }
                         break;
+                      
                     default:
-                        //ES_Timer_InitTimer(PING_TIMER, 5);
                         break;
                 }
                 break;
@@ -345,8 +330,3 @@ ES_Event RunPingService(ES_Event ThisEvent) {
     }
     return ReturnEvent;
 }
-
-/*******************************************************************************
- * PRIVATE FUNCTIONs                                                           *
- ******************************************************************************/
-
