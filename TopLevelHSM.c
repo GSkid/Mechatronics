@@ -192,7 +192,7 @@ ES_Event RunTopLevelHSM(ES_Event ThisEvent) {
                 InitDancingSubHSM(); //Initialize the dancing HSM
                 AD_Init(); //Init all ES_Framework files
 
-                //Add all the AD Pins
+                //Add all the A/D Pins
                 AD_AddPins(AD_PORTV6 | AD_PORTV7 | AD_PORTV8 | AD_PORTW3 | AD_PORTW7);
                 //Turn off ping sensors
                 An_Event.EventType = PING_OFF;
@@ -210,34 +210,16 @@ ES_Event RunTopLevelHSM(ES_Event ThisEvent) {
             // goes to the buffer for the next state. Tape sensors will be inactive!!
 
             //Waits for a beacon found event
-            //Otherwise we just TankTurn_R
+            //Otherwise we just TankTurn_L
             if (ThisEvent.EventType == BEACON_FOUND || ThisEvent.EventType == RL_BUMPER_RELEASED) {
                 //sets the next state
                 nextState = DriveToBeacon;
                 makeTransition = TRUE;
                 ThisEvent.EventType = ES_NO_EVENT; //consumes the event
                 ES_Timer_InitTimer(Generic_Timer, BUFFER_TICKS); //sets the timer for the drive buffer
-                //ES_Timer_StopTimer(Generic_Timer);
             } else {
                 TankTurn_L();  
-//                Motors_Off();
             }
-
-
-            //            if (ThisEvent.EventType == FL_BUMPER_HIT) {
-            //                 CLEAR_EVENT;
-            //                 ThisEvent.EventType = PING_ON;
-            //                 RunPingService(ThisEvent);
-            //                 PostTopLevelHSM(ThisEvent);
-            //                 CLEAR_EVENT;
-            //             }
-            //             if (ThisEvent.EventType == FL_BUMPER_RELEASED) {
-            //                 CLEAR_EVENT;
-            //                 ThisEvent.EventType = PING_OFF;
-            //                 RunPingService(ThisEvent);
-            //                 PostTopLevelHSM(ThisEvent);
-            //                 CLEAR_EVENT;
-            //             }
             break;
 
         case DriveToBeacon:
@@ -299,15 +281,6 @@ ES_Event RunTopLevelHSM(ES_Event ThisEvent) {
             //  dispense a ping pong ball
             //We simply tank turn in a specific direction to find the beacon
             //If no beacon signal is found in time, we just go to wandering
-
-            //check for tape events
-            /*if ((ThisEvent.EventType == TAPE_SENSOR_TRIPPED) && (ThisEvent.EventParam == 0x1)) {
-                tapeDirection = LEFT;
-                CLEAR_EVENT;
-            } else if ((ThisEvent.EventType == TAPE_SENSOR_TRIPPED) && (ThisEvent.EventParam == 0x2)) {
-                tapeDirection = RIGHT;
-                CLEAR_EVENT;
-            }*/
 
             //check the tape direction to determine which way to turn (in case of hitting tape)
             if (tapeDirection == LEFT) {
@@ -375,8 +348,11 @@ ES_Event RunTopLevelHSM(ES_Event ThisEvent) {
         case Dancing:
             //Calls the sub state machine that handles locating the hold and dispensing the balls
             //Resets back to ReLocating when the ball is dispensed, *does not consume event*
+		    
+	    //Call the subHSM to handle this process
             RunDancingSubHSM(ThisEvent);
 
+	    //Once we are done, we move into DriveBuffer to get away from the tower
             if (ThisEvent.EventType == BALL_DISPENSED) {
                 ES_Timer_InitTimer(Generic_Timer, BUFFER_TICKS);
                 nextState = DriveBuffer;
@@ -420,20 +396,6 @@ ES_Event RunTopLevelHSM(ES_Event ThisEvent) {
                 makeTransition = TRUE;
                 ES_Timer_InitTimer(Generic_Timer, MINI_RELOCATING_TICKS);
             }
-            
-            /*if ((ThisEvent.EventType == ES_TIMEOUT) && (ThisEvent.EventParam == Generic_Timer)) {
-                CLEAR_EVENT;
-                tapeDirection = LEFT;
-                nextState = ReLocating;
-                makeTransition = TRUE;
-                ES_Timer_InitTimer(Generic_Timer, RELOCATING_TICKS);
-            } else if ((ThisEvent.EventType == TAPE_SENSOR_TRIPPED) && (ThisEvent.EventParam == 1) || (ThisEvent.EventType == TAPE_SENSOR_TRIPPED) && (ThisEvent.EventParam == 2)) {
-                CLEAR_EVENT;
-                tapeDirection = RIGHT;
-                nextState = ReLocatingButLikeOnlyForThatOneCaseWhereShitJustIsntWorking;
-                makeTransition = TRUE;
-                ES_Timer_InitTimer(Generic_Timer, MINI_RELOCATING_TICKS);
-            }*/
             break;
             
         case ReLocatingButLikeOnlyForThatOneCaseWhereShitJustIsntWorking:
