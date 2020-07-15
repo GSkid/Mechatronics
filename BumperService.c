@@ -132,9 +132,6 @@ ES_Event RunBumperService(ES_Event ThisEvent) {
 
     returnEvent.EventType = ThisEvent.EventType;
 
-    //printf(" %i", ThisEvent);
-    //ES_Timer_InitTimer(BUMPER_TIMER, BUMPER_DELAY);
-//printf(" %i", ThisEvent);
     switch (ThisEvent.EventType) {
         case ES_INIT:
             // This section is used to reset service for some reason
@@ -167,8 +164,7 @@ ES_Event RunBumperService(ES_Event ThisEvent) {
                     PostTopLevelHSM(returnEvent); // for part 8
                 }
             }
-        //default:
-            ES_Timer_InitTimer(BUMPER_TIMER, BUMPER_DELAY);
+            ES_Timer_InitTimer(BUMPER_TIMER, BUMPER_DELAY); //reset the timer so we continually check the bumpers
             break;
     }
     return returnEvent;
