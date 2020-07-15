@@ -180,7 +180,7 @@ ES_Event RunLocateHoleHSM(ES_Event ThisEvent, uint8_t Ping_Param) {
         case InitPSubState: // If current state is initial Psedudo State
             if (ThisEvent.EventType == ES_INIT)// only respond to ES_Init
             {
-                IO_PortsClearPortBits(PORTW, ALL_TAPE_SENSORS);
+                IO_PortsClearPortBits(PORTW, ALL_TAPE_SENSORS); //Reset all output ports
                 ES_Timer_InitTimer(DISPENSE_TIMER, msec_300);
                 nextState = Dance;
                 makeTransition = TRUE;
@@ -197,10 +197,11 @@ ES_Event RunLocateHoleHSM(ES_Event ThisEvent, uint8_t Ping_Param) {
                     ThisEvent.EventType = ES_NO_EVENT;
                     break;
                 case ES_TIMEOUT:
-                    Tape_Flag = TAPE_SENSOR_CENTER << 1; // TAPE_SENSOR_LEFT << 2 | | TAPE_SENSOR_RIGHT
+                    Tape_Flag = TAPE_SENSOR_CENTER << 1; 
                     Ping_Flag = Ping_Param;
 
-                    //                    printf("Tape: %i\r\n", Tape_Flag);
+		    //First check the tape sensors looking at the wall
+		    //to find the hole
                     if (Tape_Flag == 0b100) { //Left Tape Sensor    
                         GoTo_Ride_At_Dawn;
                         JiggleState = Init;
@@ -210,8 +211,14 @@ ES_Event RunLocateHoleHSM(ES_Event ThisEvent, uint8_t Ping_Param) {
                     } else if (Tape_Flag == 0b001) { //Right Tape Sensor    
                         GoTo_Ride_At_Dawn;
                         JiggleState = Init;
-                    } else if (ThisEvent.EventParam == DISPENSE_TIMER) {
+                    } 
+		    //Otherwise, we slowly oscillate forward and backward hoping
+		    //to trigger a tape sensor
+		    else if (ThisEvent.EventParam == DISPENSE_TIMER) {
                         switch (JiggleState) {
+			    //Init shifts the bot to get as parallel with the wall as possible
+			    //This is done by using the param when we determined we were parallel
+			    //by checking which ping sensor was closer to the wall
                             case Init:
                                 ES_Timer_InitTimer(DISPENSE_TIMER, 50);
                                 if (Ping_Flag == 1) {
@@ -225,6 +232,7 @@ ES_Event RunLocateHoleHSM(ES_Event ThisEvent, uint8_t Ping_Param) {
                                 JiggleState = Rest1;
                                 break;
                                 
+			    //Next we give the bot a chance to rest in case we were adjusting parallelization
                             case Rest1:
                                 ES_Timer_InitTimer(DISPENSE_TIMER, 100);
                                 Roach_LeftMtrSpeed(0);
@@ -232,11 +240,13 @@ ES_Event RunLocateHoleHSM(ES_Event ThisEvent, uint8_t Ping_Param) {
                                 JiggleState = Forward;
                                 break;
 
+			    //Then we start the bot forward based on how many iterations of forward/backward we have already completed
                             case Forward:
                                 JiggleCount++;
                                 ES_Timer_InitTimer(DISPENSE_TIMER, 3);
-                                Roach_LeftMtrSpeed(29);
+                                Roach_LeftMtrSpeed(29); //motors not perfectly even so 29 on left == 30 on right
                                 Roach_RightMtrSpeed(30);
+				//This pattern allows us to increase how far we go forward/backward after every iteration
                                 if (JiggleCount >= JiggleLength * 11) {
                                     JiggleState = Rest2;
                                     JiggleLength += 1;
@@ -244,6 +254,7 @@ ES_Event RunLocateHoleHSM(ES_Event ThisEvent, uint8_t Ping_Param) {
                                 }
                                 break;
 
+			    //Then we briefly stop the motors as we prepare to reverse
                             case Rest2:
                                 ES_Timer_InitTimer(DISPENSE_TIMER, 100);
                                 Roach_LeftMtrSpeed(0);
@@ -251,6 +262,7 @@ ES_Event RunLocateHoleHSM(ES_Event ThisEvent, uint8_t Ping_Param) {
                                 JiggleState = Back;
                                 break;
 
+			    //Now we go in reverse and reset to Rest1 if we didn't find the tape
                             case Back:
                                 JiggleCount++;
                                 ES_Timer_InitTimer(DISPENSE_TIMER, 3);
@@ -270,7 +282,8 @@ ES_Event RunLocateHoleHSM(ES_Event ThisEvent, uint8_t Ping_Param) {
             }
             break;
 
-
+	//After we found the tape, we slowly move forward and look for the tape to disappear
+	//We're basically detecting the bounds of the tape here to know where the center of the hole is
         case Ride_At_Dawn:
             Roach_LeftMtrSpeed(23);
             Roach_RightMtrSpeed(22);
@@ -294,7 +307,8 @@ ES_Event RunLocateHoleHSM(ES_Event ThisEvent, uint8_t Ping_Param) {
             }
             break;
 
-
+	//Now we reverse for an empirically determined period of time so that we situate the ball
+	//dispenser in the center of the hole, guaranteeing an easy drop
         case Retreat:
             Roach_LeftMtrSpeed(-24);
             Roach_RightMtrSpeed(-24);
@@ -304,6 +318,7 @@ ES_Event RunLocateHoleHSM(ES_Event ThisEvent, uint8_t Ping_Param) {
             }
             break;
 
+	//Here we turn off the motors then after a second, we trigger ball delivery
         case Give_Me_A_Sec:
             Motors_Off();
             if ((ThisEvent.EventType == ES_TIMEOUT) && (ThisEvent.EventParam == DISPENSE_TIMER)) {
@@ -319,6 +334,9 @@ ES_Event RunLocateHoleHSM(ES_Event ThisEvent, uint8_t Ping_Param) {
             }
             break;
 
+	//Here we wait for the ball to be successfully delivered
+	//Then we turn off the dispensers and post a ball dispensed event to the top level,
+	//allowing everything to reset
         case SquirtingDatSweetSlime: // 
             Motors_Off();
             if ((ThisEvent.EventType == ES_TIMEOUT) && (ThisEvent.EventParam == DISPENSE_TIMER)) {
