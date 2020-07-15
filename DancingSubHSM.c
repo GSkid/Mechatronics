@@ -41,6 +41,7 @@
 /*******************************************************************************
  * MODULE #DEFINES                                                             *
  ******************************************************************************/
+//Enum for all the states in the subHSM
 typedef enum {
     InitPSubState,
     Entry,
@@ -65,6 +66,7 @@ typedef enum {
     Criss_Cross,
 } TemplateSubHSMState_t;
 
+//python-generated array of strings based on the TemplateSuhHSMState_t enum
 static const char *StateNames[] = {
 	"InitPSubState",
 	"Entry",
@@ -110,6 +112,8 @@ static const char *StateNames[] = {
 #define TRACK_WIRE_THRESH 700 // change these
 #define TRACK_WIRE_SENSOR AD_PORTW7
 
+// The following #defines are used to simplify the state machine, they handle all necessary
+// state machine variables and timers for each state
 #define GoTo_Entry nextState = Entry;\
                 makeTransition = TRUE
 #define GoTo_LB_Reverse nextState = LB_Reverse;\
@@ -240,6 +244,9 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
 
     ES_Tattle(); // trace call stack
 
+	
+	/* This state machine is very complicated, for a better in depth look at the state machine (with visuals),
+	please refer to the full report. */
     switch (CurrentState) {
         case InitPSubState: // If current state is initial Psedudo State
             if (ThisEvent.EventType == ES_INIT)// only respond to ES_Init
@@ -256,10 +263,13 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
             }
             break;
 
+	//@Entry
+	//Entry state for the dancing subHSM
         case Entry:
             //check for event params coming in from the bumper service
             Ping_Flag = 0;
 
+	    // Probably will never happen, but just check the bumpers here just in case
             if (ThisEvent.EventType == FR_BUMPER_HIT) {
                 GoTo_RB_Reverse;
                 RunPingService(PingOnEvent);
@@ -272,6 +282,9 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
             }
             break;
 
+	//@Right bumper reverse
+	//Simply makes a quick reverse when the right bumper is hit in entry/she_cruzin
+	//Always transitions to Switch_Stance on timeout
         case RB_Reverse:
             if ((ThisEvent.EventType == ES_TIMEOUT) && (ThisEvent.EventParam == 0x7)) {
                 GoTo_Switch_Stance;
@@ -284,6 +297,9 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
 
             break;
 
+	//@Switch_Stance
+	//Occurs after RB_Reverse
+	//Quickly turns the bot to the right to hopefully reorient the left side of the bot parallel to the wall
         case Switch_Stance:
             if ((ThisEvent.EventType == ES_TIMEOUT) && (ThisEvent.EventParam == 0x7)) {
                 GoTo_She_Cruzin;
@@ -295,25 +311,26 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
 
             break;
 
+	//@Left bumper reverse
+	//From any state, if the left bumper is triggered, we want to backup until the bumper is released 
+	//Usually transitions to LB_Buffer
         case LB_Reverse:
             if ((ThisEvent.EventType == FL_BUMPER_RELEASED) || (ThisEvent.EventType == F_BUMPER_RELEASED)) {
                 GoTo_LB_Buffer;
-            //} else if ((ThisEvent.EventType == FR_BUMPER_HIT) || (ThisEvent.EventType == TAPE_SENSOR_CLR)) {
-            //    GoTo_RB_Reverse;
             } else if (ThisEvent.EventType == RL_BUMPER_HIT) {
                 GoTo_Woah_Nelly;
             } else if (ThisEvent.EventType == PARALLEL_CLOSE) {
                 GoTo_Vibe_Check;
             } else if (ThisEvent.EventType == PARALLEL_FAR) {
                 GoTo_Straight_Pride;
-            //} else if ((ThisEvent.EventType == FL_BUMPER_HIT) || (ThisEvent.EventType == F_BUMPER_HIT)) {
-            //    GoTo_Backup_Dat_Trunk;
             } else {
                 Roach_LeftMtrSpeed(-5);
                 Roach_RightMtrSpeed(-50);
             }
             break;
 
+	//@Left bumper Buffer
+	//We keep backing up for a set amount of time to move away from the wall
         case LB_Buffer:
             if ((ThisEvent.EventType == ES_TIMEOUT) && (ThisEvent.EventParam == 0x7)) {
                 GoTo_Criss_Cross;
@@ -331,6 +348,8 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
             }
             break;
 
+	//@Criss_Cross
+	//This is just a short tank turn to the right to hopefully get parallel to the wall
         case Criss_Cross:
             if ((ThisEvent.EventType == ES_TIMEOUT) && (ThisEvent.EventParam == 0x7)) {
                 GoTo_She_Cruzin;
@@ -347,6 +366,9 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
             }
             break;
 
+	//@She_Cruzin
+	//The most common state where the bot just moves forward and to the left
+	//We're mostly looking for a left bumper event or a parallel close/far event
         case She_Cruzin:
             if ((ThisEvent.EventType == FL_BUMPER_HIT) || (ThisEvent.EventType == F_BUMPER_HIT)) {
                 GoTo_LB_Reverse;
@@ -367,6 +389,9 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
             }
             break;
 
+	//@Woah_Nelly
+	//This is the state we transition to whenever the back bumper is tripped
+	//We just want to make another right left turn and then move to She_Cruzin
         case Woah_Nelly:
             if ((ThisEvent.EventType == ES_TIMEOUT) && (ThisEvent.EventParam == 0x7)) {
                 GoTo_She_Cruzin;
@@ -382,6 +407,9 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
             }
             break;
 
+	//@Backup_Dat_Trunk
+	//This catches errors where the bot trips another bumper event while the FR or C bumper is already tripped
+	//In this case, we just want to full-reverse and reset
         case Backup_Dat_Trunk:
             if (ThisEvent.EventType == RL_BUMPER_HIT) {
                 GoTo_Woah_Nelly;
@@ -395,6 +423,8 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
             }
             break;
 
+	//@Ramming_Speed
+	//After Backup_dat_trunk, we now just want to hopefully slam into the tower with the left bumper
         case Ramming_Speed:
             if (ThisEvent.EventType == FR_BUMPER_HIT) {
                 GoTo_RB_Reverse;
@@ -405,7 +435,11 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
                 Roach_RightMtrSpeed(55);
             }
             break;
-
+		    
+	//@Quickie
+	//This is the state we transistion to from She_Cruzin when nothing happens for a while
+	//Here we just do a quick tank turn left to hopfully trigger a bumper event
+	//Also used to help turn around corners when we move away from the wall without a parallel far event
         case Quickie:
             if ((ThisEvent.EventType == ES_TIMEOUT) && (ThisEvent.EventParam == 0x7)) {
                 GoTo_She_Cruzin;
@@ -416,6 +450,9 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
             }
             break;
 
+	//@Vibe_Check
+	//This is where we check the EM Signal to ensure we found the right wall
+	//The motors are turned off here
         case Vibe_Check:
             Motors_Off();
             switch (ThisEvent.EventType) {
@@ -436,6 +473,9 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
             }
             break;
 
+	//@Cha_Cha_Real_Smooth
+	//If we are on the right wall, then we Cha_Cha for a little bit
+	//This state simply runs the RunLocateHoleHSM()
         case Cha_Cha_Real_Smooth:
             switch (ThisEvent.EventType) {
                 case ES_TIMERACTIVE:
@@ -447,7 +487,6 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
                     }
                     break;
             }
-
             if (ThisEvent.EventType == BALL_DISPENSED) {
                 GoTo_Entry;
             } else {
@@ -455,12 +494,18 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
             }
             break;
 
+	//@Straight_Pride
+	//The name of this state is meant to be ironic for its blatant stupidity
+	//Here we determined we are on the wrong wall so we need to go straight until 
+	//  the front ping sensor determines we are past the wall and then for an 
+	//  empirically determined set amount of time so we can clear the wall and hopefully
+	//  be parallel with the next side of the wall once we finish our turn
         case Straight_Pride:
             Roach_LeftMtrSpeed(63);
             Roach_RightMtrSpeed(65);
 
             if ((ThisEvent.EventType == PINGF_FAR) && (Mr_Flag == 0)) {
-                ES_Timer_InitTimer(DANCING_TIMER, 190);//260);
+                ES_Timer_InitTimer(DANCING_TIMER, 190);
                 Mr_Flag = 1;
             }
             
@@ -475,6 +520,10 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
             }
             break;
 
+	//@Heterophobe
+	//Here we turn after clearing the left wall, waiting until we hit the next side of the wall on the left
+	//This can be a dangerous state becaues if we don't hit the wall, we are basically lost 
+		// D_Flip_Flop hopes to get us un-lost, but there are no promises
         case Heterophobe:
             if ((ThisEvent.EventType == FL_BUMPER_HIT) || (ThisEvent.EventType == F_BUMPER_HIT)) {
                 GoTo_LB_Reverse;
@@ -486,6 +535,9 @@ ES_Event RunDancingSubHSM(ES_Event ThisEvent) {
             }
             break;
 
+	//@D_Flip_Flop
+	//If we don't hit a wall in Heterophobe, we have to try to find the wall again
+	//So here, we just go and make foward-right maneuver to hopefully clear the wall or reorient ourselves
         case D_Flip_Flop:
             if ((ThisEvent.EventType == ES_TIMEOUT) && (ThisEvent.EventParam == 0x7)) {
                 GoTo_Heterophobe;
