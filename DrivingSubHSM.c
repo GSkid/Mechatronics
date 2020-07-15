@@ -73,9 +73,9 @@ static const char *StateNames[] = {
 
 static DrivingSubHSMState_t CurrentState = InitPSubState; // <- change name to match ENUM
 static uint8_t MyPriority;
-static R_Tape_Flag = 0x0;
-static L_Tape_Flag = 0x0;
-static B_Tape_Flag = 0x0;
+static R_Tape_Flag = 0x0; //tracks the status of the FR tape sensor
+static L_Tape_Flag = 0x0; //tracks the status of the FL tape sensor
+static B_Tape_Flag = 0x0; //tracks the status of the B tape sensor
 static TimeoutFlag = 0x0;
 static ES_Event AnEvent;
 
@@ -127,6 +127,10 @@ ES_Event RunDrivingSubHSM(ES_Event ThisEvent, int Lost_Flag) {
 
     ES_Tattle(); // trace call stack
 
+	
+    /* The purpose of this state machine is to maneuver the bot to the tower and avoid tape,
+    staying on the battlefield due to inputs from the tape sensors*/
+	
     switch (CurrentState) {
         case InitPSubState: // If current state is initial Psedudo State
             if (ThisEvent.EventType == ES_INIT)// only respond to ES_Init
@@ -137,7 +141,10 @@ ES_Event RunDrivingSubHSM(ES_Event ThisEvent, int Lost_Flag) {
             }
             break;
 
-        case Forward: // in the first state, replace this with correct names
+	//Here we just want to drive forward
+	//However, we can drive in a specific direction is told to do so based on previous tape sensor events
+	//  so that we can get around the tape in the middle of the battlefield
+        case Forward:
             if (Lost_Flag == 1) {
                 Roach_LeftMtrSpeed(50);
                 Roach_RightMtrSpeed(80);
@@ -150,18 +157,21 @@ ES_Event RunDrivingSubHSM(ES_Event ThisEvent, int Lost_Flag) {
             }
 
             if (ThisEvent.EventType == TAPE_SENSOR_TRIPPED) {
+		//Post this event to the top-level so it knows we lost the beacon
                 AnEvent.EventType = FIREWALKER;
                 PostTopLevelHSM(AnEvent);
+		    
+		// checks for a left tape sensor tripped event
                 if (ThisEvent.EventParam == 0x1) {
-                    // checks for a left tape sensor tripped event
                     L_Tape_Flag = 0x1;
                     ThisEvent.EventType = ES_NO_EVENT;
                     ThisEvent.EventParam = 0x0;
                     nextState = L_Turning;
                     makeTransition = TRUE;
                     ES_Timer_InitTimer(DRIVING_TIMER, DRIVING_TICKS);
-                } else if (ThisEvent.EventParam == 0x2) {
-                    // checks for a right tape sensor tripped event
+                } 
+                // checks for a right tape sensor tripped event
+		else if (ThisEvent.EventParam == 0x2) {
                     R_Tape_Flag = 0x1;
                     ThisEvent.EventType = ES_NO_EVENT;
                     ThisEvent.EventParam = 0x0;
@@ -171,20 +181,26 @@ ES_Event RunDrivingSubHSM(ES_Event ThisEvent, int Lost_Flag) {
                 }
             }
             break;
+		    
+	//Here we reverse to the back-left to avoid tape on the left
         case L_Turning:
             Roach_LeftMtrSpeed(-35);
             Roach_RightMtrSpeed(-90);
+		    
+            // checks for a right tape sensor clear event
             if ((ThisEvent.EventType == TAPE_SENSOR_CLR) && (ThisEvent.EventParam == 0x1)) {
-                // checks for a right tape sensor clear event
                 L_Tape_Flag = 0x0;
                 ThisEvent.EventType = ES_NO_EVENT;
                 ThisEvent.EventParam = 0x0;
             }
+		    
             if ((ThisEvent.EventType == ES_TIMEOUT) && (ThisEvent.EventParam == 0x5)) {
                 TimeoutFlag = 0x1;
             }
+		    
+	    // Checks for a timeout event or back tape sensor trigger as well as a right tape sensor clear event
             if ((TimeoutFlag || ((ThisEvent.EventType == TAPE_SENSOR_TRIPPED) && (ThisEvent.EventParam == 0x4))) && (L_Tape_Flag == 0x0)) {
-                // Checks for a timeout event or back tape sensor trigger as well as a right tape sensor clear event
+		//Here we clear the firewalker flag and let the top level know
                 AnEvent.EventType = FIREWALKER_CLR;
                 PostTopLevelHSM(AnEvent);
                 nextState = Forward;
@@ -193,7 +209,9 @@ ES_Event RunDrivingSubHSM(ES_Event ThisEvent, int Lost_Flag) {
                 L_Tape_Flag = 0x0;
                 ThisEvent.EventType = ES_NO_EVENT;
                 ThisEvent.EventParam = 0x0;
-            } else if ((ThisEvent.EventType == TAPE_SENSOR_TRIPPED) && (ThisEvent.EventParam == 0x2)) {
+            } 
+	    //If we are moving back-left and trip the right tape sensor, then we go into a full reverse	    
+	    else if ((ThisEvent.EventType == TAPE_SENSOR_TRIPPED) && (ThisEvent.EventParam == 0x2)) {
                 ES_Timer_InitTimer(DRIVING_TIMER, DRIVING_TICKS);
                 nextState = Reversing;
                 makeTransition = TRUE;
@@ -203,20 +221,25 @@ ES_Event RunDrivingSubHSM(ES_Event ThisEvent, int Lost_Flag) {
                 ThisEvent.EventParam = 0x0;
             }
             break;
+		    
+	//This is basically identical to the previous state but swapped for the right tape sensor
         case R_Turning:
             Roach_LeftMtrSpeed(-90);
             Roach_RightMtrSpeed(-35);
+		    
+            // checks for a right tape sensor clear event
             if ((ThisEvent.EventType == TAPE_SENSOR_CLR) && (ThisEvent.EventParam == 0x2)) {
-                // checks for a right tape sensor clear event
                 R_Tape_Flag = 0x0;
                 ThisEvent.EventType = ES_NO_EVENT;
                 ThisEvent.EventParam = 0x0;
             }
+		    
             if ((ThisEvent.EventType == ES_TIMEOUT) && (ThisEvent.EventParam == 0x5)) {
                 TimeoutFlag = 0x1;
             }
+		    
+	    // Checks for a timeout event or back tape sensor trigger as well as a right tape sensor clear event	    
             if ((TimeoutFlag || ((ThisEvent.EventType == TAPE_SENSOR_TRIPPED) && (ThisEvent.EventParam == 0x4))) && (R_Tape_Flag == 0x0)) {
-                // Checks for a timeout event or back tape sensor trigger as well as a right tape sensor clear event
                 AnEvent.EventType = FIREWALKER_CLR;
                 PostTopLevelHSM(AnEvent);
                 nextState = Forward;
@@ -225,7 +248,9 @@ ES_Event RunDrivingSubHSM(ES_Event ThisEvent, int Lost_Flag) {
                 R_Tape_Flag = 0x0;
                 ThisEvent.EventType = ES_NO_EVENT;
                 ThisEvent.EventParam = 0x0;
-            } else if ((ThisEvent.EventType == TAPE_SENSOR_TRIPPED) && (ThisEvent.EventParam == 0x1)) {
+            }
+	    //If we are moving back-right and trip the left tape sensor, then we go into a full reverse
+	    else if ((ThisEvent.EventType == TAPE_SENSOR_TRIPPED) && (ThisEvent.EventParam == 0x1)) {
                 TimeoutFlag = 0x0;
                 ES_Timer_InitTimer(DRIVING_TIMER, DRIVING_TICKS);
                 R_Tape_Flag = 0x0;
@@ -235,6 +260,8 @@ ES_Event RunDrivingSubHSM(ES_Event ThisEvent, int Lost_Flag) {
                 ThisEvent.EventParam = 0x0;
             }
             break;
+		    
+	//This is a full reverse if both tape sensors are tripped at the same time
         case Reversing:
             Roach_LeftMtrSpeed(-70);
             Roach_RightMtrSpeed(-70);
@@ -246,6 +273,8 @@ ES_Event RunDrivingSubHSM(ES_Event ThisEvent, int Lost_Flag) {
                 ThisEvent.EventParam = 0x0;
             }
             break;
+		    
+	// After our full reverse, we u-turn to go in the opposite direction
         case Uturn:
             TankTurn_L_Fast();
             if (((ThisEvent.EventType == TAPE_SENSOR_TRIPPED) && (ThisEvent.EventParam == 0x4)) || (ThisEvent.EventType == ES_TIMEOUT)) {
@@ -257,6 +286,7 @@ ES_Event RunDrivingSubHSM(ES_Event ThisEvent, int Lost_Flag) {
                 ThisEvent.EventParam = 0x0;
             }
             break;
+		    
         default: // all unhandled states fall into here
             break;
     } // end switch on Current State
