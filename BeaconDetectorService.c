@@ -116,12 +116,10 @@ ES_Event RunBeaconDetectorService(ES_Event ThisEvent) {
      in here you write your service code
      *******************************************/
     static ES_EventTyp_t lastEvent = BEACON_LOST;
-    static uint8_t debounceCounter = 0x0;
-//    static uint8_t debounceCounter_L = 0x0;
-    uint16_t detectorRead = 0x0;
+    static uint8_t debounceCounter = 0x0; //counter to reduce impacts of noise
+    uint16_t detectorRead = 0x0; //beacon signal
 
     
-    //ES_Timer_InitTimer(BEACON_TIMER, 1);
     switch (ThisEvent.EventType) {
         case ES_INIT:
             ES_Timer_InitTimer(BEACON_TIMER, BEACON_TIMER_SEEKING);
@@ -131,10 +129,15 @@ ES_Event RunBeaconDetectorService(ES_Event ThisEvent) {
         case ES_TIMERSTOPPED:
             break;
         case ES_TIMEOUT:
+            //First read the IR beacon signal
             detectorRead = AD_ReadADPin(BEACON_INPUT);
             ThisEvent.EventType = ES_NO_EVENT;
 
+            //Then we check the beacon signal strength to verify we did pick up on a tower
+            //We also only want to post a single event, so we check if we previously did not have the beacon
             if ((detectorRead > BEACON_THRESHOLD) && (lastEvent == BEACON_LOST)) {
+                //The signal goes through 3 cycles of debouncing before the signal is verified
+                //This is to reduce the impacts of noise at the cost of response time
                 if (debounceCounter == 0x0) {
                     debounceCounter++;
                     ES_Timer_InitTimer(BEACON_TIMER, BEACON_TIMER_DEBOUNCING);
@@ -143,6 +146,7 @@ ES_Event RunBeaconDetectorService(ES_Event ThisEvent) {
                     ES_Timer_InitTimer(BEACON_TIMER, BEACON_TIMER_DEBOUNCING);
                 } else if (debounceCounter == 0x2) {
                     debounceCounter = 0x0;
+                    //Now we post the event to the top level
                     ReturnEvent.EventType = BEACON_FOUND;
                     lastEvent = BEACON_FOUND;
                     ES_Timer_InitTimer(BEACON_TIMER, 1);
@@ -150,7 +154,10 @@ ES_Event RunBeaconDetectorService(ES_Event ThisEvent) {
                 } else {
                     ES_Timer_InitTimer(BEACON_TIMER, 1);
                 }
-            } else if ((detectorRead < BEACON_THRESHOLD) && (lastEvent == BEACON_FOUND)) {
+            } 
+            //We also check if the beaon signal is below the threshold to see if we lost the beacon signal
+            //This assumes we previously were detecting the beacon
+            else if ((detectorRead < BEACON_THRESHOLD) && (lastEvent == BEACON_FOUND)) {
                 ReturnEvent.EventType = BEACON_LOST;
                 lastEvent = BEACON_LOST;
                 ES_Timer_InitTimer(BEACON_TIMER, 1);
